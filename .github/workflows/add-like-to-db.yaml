@@ -1,0 +1,72 @@
+name: test issue to like
+
+on: 
+  issues:
+    types: ['opened']
+    
+concurrency: like-env
+
+jobs:
+  job1:
+    runs-on: ubuntu-latest
+    steps:
+      - name: View issue information
+        run: |
+          echo "Issue title: ${{ github.event.issue.title }}"
+          echo "Issue body: ${{ github.event.issue.body }}"
+          echo "Issue number: ${{ github.event.issue.number }}"
+          echo "Issue date: ${{ github.event.issue.updated_at }}"
+
+      # You also can print the whole github context to the logs to view more details.
+      - name: View the github context
+        run: echo "$GITHUB_CONTEXT"
+        env:
+          GITHUB_CONTEXT: ${{ toJson(github) }}
+
+      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
+      - uses: actions/checkout@v2
+      
+      - name: Commit and push if it changed
+        run: |-
+          git pull
+
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: '3.8'
+      
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: execute Python script
+        run: |
+          python add-to-db.py $id $url $date
+        env:
+          id: ${{ github.event.issue.number }}
+          url: ${{ github.event.issue.title }}
+          date: ${{ github.event.issue.updated_at }}
+          
+      - name: Commit and push if it changed
+        run: |-
+          git config user.name "Automated"
+          git config user.email "actions@users.noreply.github.com"
+          git add general-likes.db
+          timestamp=$(date -u)
+          git commit -m "auto: Latest data: ${timestamp}" || exit 0
+          git push
+
+      - name: Deploy Datasette using Vercel
+        env:
+          NOW_TOKEN: ${{ secrets.NOW_TOKEN }}
+        run: |-
+          datasette publish vercel general-likes.db \
+            --token $NOW_TOKEN \
+            --project general-likes-datasette
+
+      - name: Close Issue
+        uses: peter-evans/close-issue@v1
+        with:
+          issue-number: ${{ github.event.issue.number }}
+          comment: Auto-closing issue
